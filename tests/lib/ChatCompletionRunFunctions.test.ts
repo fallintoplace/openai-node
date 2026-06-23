@@ -4,12 +4,11 @@ import { PassThrough } from 'stream';
 import {
   ParsingToolFunction,
   type ChatCompletionRunner,
-  type ChatCompletionFunctionRunnerParams,
+  type ChatCompletionToolRunnerParams,
   ChatCompletionStreamingRunner,
-  type ChatCompletionStreamingFunctionRunnerParams,
-} from 'openai/resources/beta/chat/completions';
+  type ChatCompletionStreamingToolRunnerParams,
+} from 'openai/resources/chat/completions';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
-import { Response } from 'node-fetch';
 import { isAssistantMessage } from '../../src/lib/chatCompletionUtils';
 import { mockFetch } from '../utils/mock-fetch';
 
@@ -19,12 +18,12 @@ function mockChatCompletionFetch() {
   const { fetch, handleRequest: handleRawRequest } = mockFetch();
 
   function handleRequest(
-    handler: (body: ChatCompletionFunctionRunnerParams<any[]>) => Promise<OpenAI.Chat.ChatCompletion>,
+    handler: (body: ChatCompletionToolRunnerParams<any[]>) => Promise<OpenAI.Chat.ChatCompletion>,
   ): Promise<void> {
     return handleRawRequest(async (req, init) => {
       const rawBody = init?.body;
       if (typeof rawBody !== 'string') throw new Error(`expected init.body to be a string`);
-      const body: ChatCompletionFunctionRunnerParams<any[]> = JSON.parse(rawBody);
+      const body: ChatCompletionToolRunnerParams<any[]> = JSON.parse(rawBody);
       return new Response(JSON.stringify(await handler(body)), {
         headers: { 'Content-Type': 'application/json' },
       });
@@ -40,13 +39,13 @@ function mockStreamingChatCompletionFetch() {
 
   function handleRequest(
     handler: (
-      body: ChatCompletionStreamingFunctionRunnerParams<any[]>,
+      body: ChatCompletionStreamingToolRunnerParams<any[]>,
     ) => AsyncIterable<OpenAI.Chat.ChatCompletionChunk>,
   ): Promise<void> {
     return handleRawRequest(async (req, init) => {
       const rawBody = init?.body;
       if (typeof rawBody !== 'string') throw new Error(`expected init.body to be a string`);
-      const body: ChatCompletionStreamingFunctionRunnerParams<any[]> = JSON.parse(rawBody);
+      const body: ChatCompletionStreamingToolRunnerParams<any[]> = JSON.parse(rawBody);
       const stream = new PassThrough();
       (async () => {
         for await (const chunk of handler(body)) {
@@ -131,12 +130,12 @@ class RunnerListener {
   readonly contents: string[] = [];
   readonly messages: ChatCompletionMessageParam[] = [];
   readonly chatCompletions: OpenAI.Chat.ChatCompletion[] = [];
-  readonly functionCalls: OpenAI.Chat.ChatCompletionMessage.FunctionCall[] = [];
+  readonly functionCalls: OpenAI.Chat.ChatCompletionMessageFunctionToolCall.Function[] = [];
   readonly functionCallResults: string[] = [];
   finalContent: string | null = null;
   finalMessage: ChatCompletionMessageParam | undefined;
   finalChatCompletion: OpenAI.Chat.ChatCompletion | undefined;
-  finalFunctionCall: OpenAI.Chat.ChatCompletionMessage.FunctionCall | undefined;
+  finalFunctionCall: OpenAI.Chat.ChatCompletionMessageFunctionToolCall.Function | undefined;
   finalFunctionCallResult: string | undefined;
   totalUsage: OpenAI.CompletionUsage | undefined;
   error: OpenAIError | undefined;
@@ -152,13 +151,13 @@ class RunnerListener {
       .on('content', (content) => this.contents.push(content))
       .on('message', (message) => this.messages.push(message))
       .on('chatCompletion', (completion) => this.chatCompletions.push(completion))
-      .on('functionCall', (functionCall) => this.functionCalls.push(functionCall))
-      .on('functionCallResult', (result) => this.functionCallResults.push(result))
+      .on('functionToolCall', (functionCall) => this.functionCalls.push(functionCall))
+      .on('functionToolCallResult', (result) => this.functionCallResults.push(result))
       .on('finalContent', (content) => (this.finalContent = content))
       .on('finalMessage', (message) => (this.finalMessage = message))
       .on('finalChatCompletion', (completion) => (this.finalChatCompletion = completion))
-      .on('finalFunctionCall', (functionCall) => (this.finalFunctionCall = functionCall))
-      .on('finalFunctionCallResult', (result) => (this.finalFunctionCallResult = result))
+      .on('finalFunctionToolCall', (functionCall) => (this.finalFunctionCall = functionCall))
+      .on('finalFunctionToolCallResult', (result) => (this.finalFunctionCallResult = result))
       .on('totalUsage', (usage) => (this.totalUsage = usage))
       .on('error', (error) => (this.error = error))
       .on('abort', (error) => ((this.error = error), (this.gotAbort = true)))
@@ -176,8 +175,8 @@ class RunnerListener {
       await expect(this.runner.finalChatCompletion()).rejects.toThrow(error);
       await expect(this.runner.finalMessage()).rejects.toThrow(error);
       await expect(this.runner.finalContent()).rejects.toThrow(error);
-      await expect(this.runner.finalFunctionCall()).rejects.toThrow(error);
-      await expect(this.runner.finalFunctionCallResult()).rejects.toThrow(error);
+      await expect(this.runner.finalFunctionToolCall()).rejects.toThrow(error);
+      await expect(this.runner.finalFunctionToolCallResult()).rejects.toThrow(error);
       await expect(this.runner.totalUsage()).rejects.toThrow(error);
       await expect(this.runner.done()).rejects.toThrow(error);
     } else {
@@ -215,13 +214,13 @@ class RunnerListener {
     expect(this.finalChatCompletion).toEqual(this.chatCompletions[this.chatCompletions.length - 1]);
     expect(await this.runner.finalChatCompletion()).toEqual(this.finalChatCompletion);
     expect(this.finalFunctionCall).toEqual(this.functionCalls[this.functionCalls.length - 1]);
-    expect(await this.runner.finalFunctionCall()).toEqual(this.finalFunctionCall);
+    expect(await this.runner.finalFunctionToolCall()).toEqual(this.finalFunctionCall);
     expect(this.finalFunctionCallResult).toEqual(
       this.functionCallResults[this.functionCallResults.length - 1],
     );
-    expect(await this.runner.finalFunctionCallResult()).toEqual(this.finalFunctionCallResult);
+    expect(await this.runner.finalFunctionToolCallResult()).toEqual(this.finalFunctionCallResult);
     expect(this.chatCompletions).toEqual(this.runner.allChatCompletions());
-    expect(this.messages).toEqual(this.runner.messages.slice(-this.messages.length));
+    expect(this.messages).toEqual(this.runner.messages.filter((message) => this.messages.includes(message)));
     if (this.chatCompletions.some((c) => c.usage)) {
       const totalUsage: OpenAI.CompletionUsage = {
         completion_tokens: 0,
@@ -248,13 +247,13 @@ class StreamingRunnerListener {
   readonly eventContents: [string, string][] = [];
   readonly eventMessages: ChatCompletionMessageParam[] = [];
   readonly eventChatCompletions: OpenAI.Chat.ChatCompletion[] = [];
-  readonly eventFunctionCalls: OpenAI.Chat.ChatCompletionMessage.FunctionCall[] = [];
+  readonly eventFunctionCalls: OpenAI.Chat.ChatCompletionMessageFunctionToolCall.Function[] = [];
   readonly eventFunctionCallResults: string[] = [];
 
   finalContent: string | null = null;
   finalMessage: ChatCompletionMessageParam | undefined;
   finalChatCompletion: OpenAI.Chat.ChatCompletion | undefined;
-  finalFunctionCall: OpenAI.Chat.ChatCompletionMessage.FunctionCall | undefined;
+  finalFunctionCall: OpenAI.Chat.ChatCompletionMessageFunctionToolCall.Function | undefined;
   finalFunctionCallResult: string | undefined;
   error: OpenAIError | undefined;
   gotConnect = false;
@@ -267,13 +266,13 @@ class StreamingRunnerListener {
       .on('content', (delta, snapshot) => this.eventContents.push([delta, snapshot]))
       .on('message', (message) => this.eventMessages.push(message))
       .on('chatCompletion', (completion) => this.eventChatCompletions.push(completion))
-      .on('functionCall', (functionCall) => this.eventFunctionCalls.push(functionCall))
-      .on('functionCallResult', (result) => this.eventFunctionCallResults.push(result))
+      .on('functionToolCall', (functionCall) => this.eventFunctionCalls.push(functionCall))
+      .on('functionToolCallResult', (result) => this.eventFunctionCallResults.push(result))
       .on('finalContent', (content) => (this.finalContent = content))
       .on('finalMessage', (message) => (this.finalMessage = message))
       .on('finalChatCompletion', (completion) => (this.finalChatCompletion = completion))
-      .on('finalFunctionCall', (functionCall) => (this.finalFunctionCall = functionCall))
-      .on('finalFunctionCallResult', (result) => (this.finalFunctionCallResult = result))
+      .on('finalFunctionToolCall', (functionCall) => (this.finalFunctionCall = functionCall))
+      .on('finalFunctionToolCallResult', (result) => (this.finalFunctionCallResult = result))
       .on('error', (error) => (this.error = error))
       .on('abort', (abort) => (this.error = abort))
       .on('end', () => (this.gotEnd = true));
@@ -286,8 +285,8 @@ class StreamingRunnerListener {
       await expect(this.runner.finalChatCompletion()).rejects.toThrow(error);
       await expect(this.runner.finalMessage()).rejects.toThrow(error);
       await expect(this.runner.finalContent()).rejects.toThrow(error);
-      await expect(this.runner.finalFunctionCall()).rejects.toThrow(error);
-      await expect(this.runner.finalFunctionCallResult()).rejects.toThrow(error);
+      await expect(this.runner.finalFunctionToolCall()).rejects.toThrow(error);
+      await expect(this.runner.finalFunctionToolCallResult()).rejects.toThrow(error);
       await expect(this.runner.done()).rejects.toThrow(error);
     } else {
       expect(this.error).toBeUndefined();
@@ -319,13 +318,15 @@ class StreamingRunnerListener {
     expect(this.finalChatCompletion).toEqual(this.eventChatCompletions[this.eventChatCompletions.length - 1]);
     expect(await this.runner.finalChatCompletion()).toEqual(this.finalChatCompletion);
     expect(this.finalFunctionCall).toEqual(this.eventFunctionCalls[this.eventFunctionCalls.length - 1]);
-    expect(await this.runner.finalFunctionCall()).toEqual(this.finalFunctionCall);
+    expect(await this.runner.finalFunctionToolCall()).toEqual(this.finalFunctionCall);
     expect(this.finalFunctionCallResult).toEqual(
       this.eventFunctionCallResults[this.eventFunctionCallResults.length - 1],
     );
-    expect(await this.runner.finalFunctionCallResult()).toEqual(this.finalFunctionCallResult);
+    expect(await this.runner.finalFunctionToolCallResult()).toEqual(this.finalFunctionCallResult);
     expect(this.eventChatCompletions).toEqual(this.runner.allChatCompletions());
-    expect(this.eventMessages).toEqual(this.runner.messages.slice(-this.eventMessages.length));
+    expect(this.eventMessages).toEqual(
+      this.runner.messages.filter((message) => this.eventMessages.includes(message)),
+    );
     if (error) {
       expect(this.error?.message).toEqual(error);
       expect(this.runner.errored).toBe(true);
@@ -340,7 +341,7 @@ class StreamingRunnerListener {
 function _typeTests() {
   const openai = new OpenAI();
 
-  openai.beta.chat.completions.runTools({
+  openai.chat.completions.runTools({
     messages: [
       { role: 'user', content: 'can you tell me how many properties are in {"a": 1, "b": 2, "c": 3}' },
     ],
@@ -381,7 +382,7 @@ function _typeTests() {
       },
     ],
   });
-  openai.beta.chat.completions.runTools({
+  openai.chat.completions.runTools({
     messages: [
       { role: 'user', content: 'can you tell me how many properties are in {"a": 1, "b": 2, "c": 3}' },
     ],
@@ -397,7 +398,7 @@ function _typeTests() {
       }),
     ],
   });
-  openai.beta.chat.completions.runTools({
+  openai.chat.completions.runTools({
     messages: [
       { role: 'user', content: 'can you tell me how many properties are in {"a": 1, "b": 2, "c": 3}' },
     ],
@@ -439,7 +440,7 @@ function _typeTests() {
       }),
     ],
   });
-  openai.beta.chat.completions.runTools({
+  openai.chat.completions.runTools({
     messages: [
       { role: 'user', content: 'can you tell me how many properties are in {"a": 1, "b": 2, "c": 3}' },
     ],
@@ -500,23 +501,36 @@ describe('resource completions', () => {
       const { fetch, handleRequest } = mockChatCompletionFetch();
 
       const openai = new OpenAI({ apiKey: 'something1234', baseURL: 'http://127.0.0.1:4010', fetch });
+      const completionIDs: string[] = [];
+      const injectedMessage: ChatCompletionMessageParam = {
+        role: 'system',
+        content: 'Use this extra context for the next response.',
+      };
 
-      const runner = openai.beta.chat.completions.runTools({
-        messages: [{ role: 'user', content: 'tell me what the weather is like' }],
-        model: 'gpt-3.5-turbo',
-        tools: [
-          {
-            type: 'function',
-            function: {
-              function: function getWeather() {
-                return `it's raining`;
+      const runner = openai.chat.completions.runTools(
+        {
+          messages: [{ role: 'user', content: 'tell me what the weather is like' }],
+          model: 'gpt-3.5-turbo',
+          tools: [
+            {
+              type: 'function',
+              function: {
+                function: function getWeather() {
+                  return `it's raining`;
+                },
+                parameters: {},
+                description: 'gets the weather',
               },
-              parameters: {},
-              description: 'gets the weather',
             },
+          ],
+        },
+        {
+          afterCompletion: (completion, runner) => {
+            completionIDs.push(completion.id);
+            if (completion.id === '1') runner.messages.push(injectedMessage);
           },
-        ],
-      });
+        },
+      );
       const listener = new RunnerListener(runner);
 
       await handleRequest(async (request) => {
@@ -580,6 +594,7 @@ describe('resource completions', () => {
             content: `it's raining`,
             tool_call_id: '123',
           },
+          injectedMessage,
         ]);
 
         return {
@@ -604,6 +619,7 @@ describe('resource completions', () => {
 
       await runner.done();
 
+      expect(completionIDs).toEqual(['1', '2']);
       expect(listener.messages).toEqual([
         {
           role: 'assistant',
@@ -628,11 +644,121 @@ describe('resource completions', () => {
           content: "it's raining",
           parsed: null,
           refusal: null,
-          tool_calls: [],
+          tool_calls: undefined,
         },
       ]);
       expect(listener.functionCallResults).toEqual([`it's raining`]);
       await listener.sanityCheck();
+    });
+    test('runs tool calls concurrently and preserves their result order', async () => {
+      const { fetch, handleRequest } = mockChatCompletionFetch();
+
+      const openai = new OpenAI({ apiKey: 'something1234', baseURL: 'http://127.0.0.1:4010', fetch });
+      const started: string[] = [];
+      let markFirstStarted!: () => void;
+      let resolveFirst!: (value: string) => void;
+      let resolveSecond!: (value: string) => void;
+      const firstStarted = new Promise<void>((resolve) => (markFirstStarted = resolve));
+      const firstResult = new Promise<string>((resolve) => (resolveFirst = resolve));
+      const secondResult = new Promise<string>((resolve) => (resolveSecond = resolve));
+
+      const runner = openai.chat.completions.runTools({
+        messages: [{ role: 'user', content: 'run both tools' }],
+        model: 'gpt-3.5-turbo',
+        tools: [
+          {
+            type: 'function',
+            function: {
+              function: function firstTool() {
+                started.push('firstTool');
+                markFirstStarted();
+                return firstResult;
+              },
+              parameters: {},
+              description: 'returns the first result',
+            },
+          },
+          {
+            type: 'function',
+            function: {
+              function: function secondTool() {
+                started.push('secondTool');
+                return secondResult;
+              },
+              parameters: {},
+              description: 'returns the second result',
+            },
+          },
+        ],
+      });
+
+      await handleRequest(async (request) => {
+        expect(request.messages).toEqual([{ role: 'user', content: 'run both tools' }]);
+        return {
+          id: '1',
+          choices: [
+            {
+              index: 0,
+              finish_reason: 'tool_calls',
+              logprobs: null,
+              message: {
+                role: 'assistant',
+                content: null,
+                refusal: null,
+                parsed: null,
+                tool_calls: [
+                  {
+                    type: 'function',
+                    id: 'first-call',
+                    function: { arguments: '', name: 'firstTool' },
+                  },
+                  {
+                    type: 'function',
+                    id: 'second-call',
+                    function: { arguments: '', name: 'secondTool' },
+                  },
+                ],
+              },
+            },
+          ],
+          created: Math.floor(Date.now() / 1000),
+          model: 'gpt-3.5-turbo',
+          object: 'chat.completion',
+        };
+      });
+
+      await firstStarted;
+      const startedBeforeFirstResolved = [...started];
+
+      const finalRequest = handleRequest(async (request) => {
+        expect(request.messages.slice(-2)).toEqual([
+          { role: 'tool', content: 'first result', tool_call_id: 'first-call' },
+          { role: 'tool', content: 'second result', tool_call_id: 'second-call' },
+        ]);
+        return {
+          id: '2',
+          choices: [
+            {
+              index: 0,
+              finish_reason: 'stop',
+              logprobs: null,
+              message: { role: 'assistant', content: 'done', refusal: null },
+            },
+          ],
+          created: Math.floor(Date.now() / 1000),
+          model: 'gpt-3.5-turbo',
+          object: 'chat.completion',
+        };
+      });
+
+      // Finish the second tool first to ensure completion timing cannot reorder
+      // the tool messages supplied to the next request.
+      resolveSecond('second result');
+      await Promise.resolve();
+      resolveFirst('first result');
+
+      await Promise.all([finalRequest, runner.done()]);
+      expect(startedBeforeFirstResolved).toEqual(['firstTool', 'secondTool']);
     });
     test('flow with abort', async () => {
       const { fetch, handleRequest } = mockChatCompletionFetch();
@@ -640,7 +766,7 @@ describe('resource completions', () => {
       const openai = new OpenAI({ apiKey: 'something1234', baseURL: 'http://127.0.0.1:4010', fetch });
 
       const controller = new AbortController();
-      const runner = openai.beta.chat.completions.runTools(
+      const runner = openai.chat.completions.runTools(
         {
           messages: [{ role: 'user', content: 'tell me what the weather is like' }],
           model: 'gpt-3.5-turbo',
@@ -727,7 +853,7 @@ describe('resource completions', () => {
 
       const openai = new OpenAI({ apiKey: 'something1234', baseURL: 'http://127.0.0.1:4010', fetch });
 
-      const runner = openai.beta.chat.completions.runTools({
+      const runner = openai.chat.completions.runTools({
         messages: [
           {
             role: 'user',
@@ -876,7 +1002,7 @@ describe('resource completions', () => {
           content: 'there are 3 properties in {"a": 1, "b": 2, "c": 3}',
           parsed: null,
           refusal: null,
-          tool_calls: [],
+          tool_calls: undefined,
         },
       ]);
       expect(listener.functionCallResults).toEqual(['3']);
@@ -887,7 +1013,7 @@ describe('resource completions', () => {
 
       const openai = new OpenAI({ apiKey: 'something1234', baseURL: 'http://127.0.0.1:4010', fetch });
 
-      const runner = openai.beta.chat.completions.runTools({
+      const runner = openai.chat.completions.runTools({
         messages: [
           {
             role: 'user',
@@ -1125,7 +1251,7 @@ describe('resource completions', () => {
           content: 'there are 3 properties in {"a": 1, "b": 2, "c": 3}',
           parsed: null,
           refusal: null,
-          tool_calls: [],
+          tool_calls: undefined,
         },
       ]);
       expect(listener.functionCallResults).toEqual([`must be an object`, '3']);
@@ -1136,7 +1262,7 @@ describe('resource completions', () => {
 
       const openai = new OpenAI({ apiKey: 'something1234', baseURL: 'http://127.0.0.1:4010', fetch });
 
-      const runner = openai.beta.chat.completions.runTools({
+      const runner = openai.chat.completions.runTools({
         messages: [{ role: 'user', content: 'tell me what the weather is like' }],
         model: 'gpt-3.5-turbo',
         tool_choice: {
@@ -1224,7 +1350,7 @@ describe('resource completions', () => {
 
       const openai = new OpenAI({ apiKey: 'something1234', baseURL: 'http://127.0.0.1:4010', fetch });
 
-      const runner = openai.beta.chat.completions.runTools({
+      const runner = openai.chat.completions.runTools({
         messages: [{ role: 'user', content: 'tell me what the weather is like' }],
         model: 'gpt-3.5-turbo',
         tools: [
@@ -1443,7 +1569,7 @@ describe('resource completions', () => {
           content: "it's raining",
           parsed: null,
           refusal: null,
-          tool_calls: [],
+          tool_calls: undefined,
         },
       ]);
       expect(listener.functionCallResults).toEqual([
@@ -1459,24 +1585,37 @@ describe('resource completions', () => {
       const { fetch, handleRequest } = mockStreamingChatCompletionFetch();
 
       const openai = new OpenAI({ apiKey: 'something1234', baseURL: 'http://127.0.0.1:4010', fetch });
+      const completionIDs: string[] = [];
+      const injectedMessage: ChatCompletionMessageParam = {
+        role: 'system',
+        content: 'Use this extra context for the next response.',
+      };
 
-      const runner = openai.beta.chat.completions.runTools({
-        stream: true,
-        messages: [{ role: 'user', content: 'tell me what the weather is like' }],
-        model: 'gpt-3.5-turbo',
-        tools: [
-          {
-            type: 'function',
-            function: {
-              function: function getWeather() {
-                return `it's raining`;
+      const runner = openai.chat.completions.runTools(
+        {
+          stream: true,
+          messages: [{ role: 'user', content: 'tell me what the weather is like' }],
+          model: 'gpt-3.5-turbo',
+          tools: [
+            {
+              type: 'function',
+              function: {
+                function: function getWeather() {
+                  return `it's raining`;
+                },
+                parameters: {},
+                description: 'gets the weather',
               },
-              parameters: {},
-              description: 'gets the weather',
             },
+          ],
+        },
+        {
+          afterCompletion: (completion, runner) => {
+            completionIDs.push(completion.id);
+            if (completion.id === '1') runner.messages.push(injectedMessage);
           },
-        ],
-      });
+        },
+      );
       const listener = new StreamingRunnerListener(runner);
 
       await Promise.all([
@@ -1535,6 +1674,7 @@ describe('resource completions', () => {
               content: `it's raining`,
               tool_call_id: '123',
             },
+            injectedMessage,
           ]);
           for (const choice of contentChoiceDeltas(`it's raining`)) {
             yield {
@@ -1549,6 +1689,7 @@ describe('resource completions', () => {
         runner.done(),
       ]);
 
+      expect(completionIDs).toEqual(['1', '2']);
       expect(listener.eventMessages).toEqual([
         {
           role: 'assistant',
@@ -1572,7 +1713,7 @@ describe('resource completions', () => {
           content: "it's raining",
           parsed: null,
           refusal: null,
-          tool_calls: [],
+          tool_calls: undefined,
         },
       ]);
       expect(listener.eventFunctionCallResults).toEqual([`it's raining`]);
@@ -1584,7 +1725,7 @@ describe('resource completions', () => {
       const openai = new OpenAI({ apiKey: 'something1234', baseURL: 'http://127.0.0.1:4010', fetch });
 
       const controller = new AbortController();
-      const runner = openai.beta.chat.completions.runTools(
+      const runner = openai.chat.completions.runTools(
         {
           stream: true,
           messages: [{ role: 'user', content: 'tell me what the weather is like' }],
@@ -1604,7 +1745,7 @@ describe('resource completions', () => {
         },
         { signal: controller.signal },
       );
-      runner.on('functionCallResult', () => controller.abort());
+      runner.on('functionToolCallResult', () => controller.abort());
       const listener = new StreamingRunnerListener(runner);
 
       await handleRequest(async function* (request): AsyncIterable<OpenAI.Chat.ChatCompletionChunk> {
@@ -1668,7 +1809,7 @@ describe('resource completions', () => {
 
       const openai = new OpenAI({ apiKey: 'something1234', baseURL: 'http://127.0.0.1:4010', fetch });
 
-      const runner = openai.beta.chat.completions.runTools({
+      const runner = openai.chat.completions.runTools({
         stream: true,
         messages: [
           {
@@ -1795,7 +1936,7 @@ describe('resource completions', () => {
           content: 'there are 3 properties in {"a": 1, "b": 2, "c": 3}',
           parsed: null,
           refusal: null,
-          tool_calls: [],
+          tool_calls: undefined,
         },
       ]);
       expect(listener.eventFunctionCallResults).toEqual(['3']);
@@ -1806,7 +1947,7 @@ describe('resource completions', () => {
 
       const openai = new OpenAI({ apiKey: 'something1234', baseURL: 'http://127.0.0.1:4010', fetch });
 
-      const runner = openai.beta.chat.completions.runTools({
+      const runner = openai.chat.completions.runTools({
         stream: true,
         messages: [
           {
@@ -1997,7 +2138,7 @@ describe('resource completions', () => {
           content: 'there are 3 properties in {"a": 1, "b": 2, "c": 3}',
           parsed: null,
           refusal: null,
-          tool_calls: [],
+          tool_calls: undefined,
         },
       ]);
       expect(listener.eventFunctionCallResults).toEqual([`must be an object`, '3']);
@@ -2008,7 +2149,7 @@ describe('resource completions', () => {
 
       const openai = new OpenAI({ apiKey: 'something1234', baseURL: 'http://127.0.0.1:4010', fetch });
 
-      const runner = openai.beta.chat.completions.runTools({
+      const runner = openai.chat.completions.runTools({
         stream: true,
         messages: [{ role: 'user', content: 'tell me what the weather is like' }],
         model: 'gpt-3.5-turbo',
@@ -2094,7 +2235,7 @@ describe('resource completions', () => {
 
       const openai = new OpenAI({ apiKey: 'something1234', baseURL: 'http://127.0.0.1:4010', fetch });
 
-      const runner = openai.beta.chat.completions.runTools({
+      const runner = openai.chat.completions.runTools({
         stream: true,
         messages: [{ role: 'user', content: 'tell me what the weather is like' }],
         model: 'gpt-3.5-turbo',
@@ -2301,7 +2442,7 @@ describe('resource completions', () => {
           content: "it's raining",
           parsed: null,
           refusal: null,
-          tool_calls: [],
+          tool_calls: undefined,
         },
       ]);
       expect(listener.eventFunctionCallResults).toEqual([
@@ -2318,7 +2459,7 @@ describe('resource completions', () => {
 
       const openai = new OpenAI({ apiKey: 'something1234', baseURL: 'http://127.0.0.1:4010', fetch });
 
-      const runner = openai.beta.chat.completions.stream({
+      const runner = openai.chat.completions.stream({
         stream: true,
         messages: [{ role: 'user', content: 'tell me what the weather is like' }],
         model: 'gpt-3.5-turbo',
@@ -2347,7 +2488,7 @@ describe('resource completions', () => {
         content: 'The weather is great today!',
         parsed: null,
         refusal: null,
-        tool_calls: [],
+        tool_calls: undefined,
       });
       await listener.sanityCheck();
     });
@@ -2356,7 +2497,7 @@ describe('resource completions', () => {
 
       const openai = new OpenAI({ apiKey: 'something1234', baseURL: 'http://127.0.0.1:4010', fetch });
 
-      const runner = openai.beta.chat.completions.stream({
+      const runner = openai.chat.completions.stream({
         stream: true,
         messages: [{ role: 'user', content: 'tell me what the weather is like' }],
         model: 'gpt-3.5-turbo',
@@ -2386,7 +2527,7 @@ describe('resource completions', () => {
         content: 'The weather is great today!',
         parsed: null,
         refusal: null,
-        tool_calls: [],
+        tool_calls: undefined,
       });
       await listener.sanityCheck();
     });
@@ -2395,7 +2536,7 @@ describe('resource completions', () => {
 
       const openai = new OpenAI({ apiKey: '...', fetch });
 
-      const stream = openai.beta.chat.completions.stream(
+      const stream = openai.chat.completions.stream(
         {
           max_tokens: 1024,
           model: 'gpt-3.5-turbo',
@@ -2419,7 +2560,7 @@ describe('resource completions', () => {
 
       const openai = new OpenAI({ apiKey: '...', fetch });
 
-      const stream = openai.beta.chat.completions.stream(
+      const stream = openai.chat.completions.stream(
         {
           max_tokens: 1024,
           model: 'gpt-3.5-turbo',
