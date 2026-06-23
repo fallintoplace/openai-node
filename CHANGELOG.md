@@ -1,5 +1,28 @@
 # Changelog
 
+## 6.45.0 (2026-06-23)
+
+Full Changelog: [v6.44.0...v6.45.0](https://github.com/openai/openai-node/compare/v6.44.0...v6.45.0)
+
+### Features
+
+* add afterCompletion hook to runTools ([#1064](https://github.com/openai/openai-node/issues/1064)) ([4976c22](https://github.com/openai/openai-node/commit/4976c22bf608e4d5f70d6386cfe9c428cf8ff2c7))
+
+
+### Bug Fixes
+
+* avoid serializing null optional bodies ([1a4de9c](https://github.com/openai/openai-node/commit/1a4de9cd7a2f8fe99972bc39b5f948fbe82f7a98))
+
+
+### Chores
+
+* **internal:** codegen related update ([7e88318](https://github.com/openai/openai-node/commit/7e88318cbf4da74907a9d825c3a872d2f11fe587))
+
+
+### Build System
+
+* vendor tsc-multi build tool ([#1948](https://github.com/openai/openai-node/issues/1948)) ([7c35bcd](https://github.com/openai/openai-node/commit/7c35bcd186140f47a13f9e60e19e40a1994cbf5e))
+
 ## 6.44.0 (2026-06-17)
 
 Full Changelog: [v6.43.0...v6.44.0](https://github.com/openai/openai-node/compare/v6.43.0...v6.44.0)
